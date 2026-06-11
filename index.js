@@ -3,7 +3,7 @@ const app = express();
 app.use(express.json());
 
 const BALE_TOKEN = process.env.BALE_TOKEN;
-const GEMINI_KEY = process.env.GEMINI_KEY;
+const OPENROUTER_KEY = process.env.OPENROUTER_KEY;
 const BALE_API = "https://tapi.bale.ai/bot" + BALE_TOKEN;
 
 const conversations = {};
@@ -24,30 +24,33 @@ function getAIReply(userId, userMessage) {
   if (!conversations[userId]) {
     conversations[userId] = [];
   }
-  conversations[userId].push({ role: "user", parts: [{ text: userMessage }] });
+  conversations[userId].push({ role: "user", content: userMessage });
   if (conversations[userId].length > 20) {
     conversations[userId] = conversations[userId].slice(-20);
   }
 
-  var url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=" + GEMINI_KEY;
-
-  return fetch(url, {
+  return fetch("https://openrouter.ai/api/v1/chat/completions", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+      "Authorization": "Bearer " + OPENROUTER_KEY,
+      "HTTP-Referer": "https://novinpushesh.vercel.app",
+      "X-Title": "Novin Pushesh Bot",
+    },
     body: JSON.stringify({
-      system_instruction: { parts: [{ text: SYSTEM_PROMPT }] },
-      contents: conversations[userId],
+      model: "meta-llama/llama-3.1-8b-instruct:free",
+      messages: [{ role: "system", content: SYSTEM_PROMPT }].concat(conversations[userId]),
     }),
   }).then(function(response) {
     return response.json();
   }).then(function(data) {
-    console.log("Gemini response:", JSON.stringify(data));
-    var reply = data.candidates && data.candidates[0] && data.candidates[0].content && data.candidates[0].content.parts && data.candidates[0].content.parts[0] && data.candidates[0].content.parts[0].text;
+    console.log("OpenRouter response:", JSON.stringify(data));
+    var reply = data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content;
     if (!reply) {
-      console.error("Gemini error:", JSON.stringify(data));
+      console.error("OpenRouter error:", JSON.stringify(data));
       return "متأسفم، مشکلی پیش آمد. با 09128468737 تماس بگیرید.";
     }
-    conversations[userId].push({ role: "model", parts: [{ text: reply }] });
+    conversations[userId].push({ role: "assistant", content: reply });
     return reply;
   });
 }
@@ -75,15 +78,6 @@ app.post("/webhook", function(req, res) {
     console.error("Error:", err.message);
     sendMessage(chatId, "متأسفم، مشکلی پیش آمد. با 09128468737 تماس بگیرید.");
   });
-});
-
-app.get("/", function(req, res) {
-  res.send("Bot is running");
-});
-
-var PORT = process.env.PORT || 3000;
-app.listen(PORT, function() {
-  console.log("Server running on port " + PORT);
 });
 
 app.get("/", function(req, res) {
