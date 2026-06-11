@@ -6,7 +6,6 @@ const BALE_TOKEN = process.env.BALE_TOKEN;
 const ANTHROPIC_KEY = process.env.ANTHROPIC_KEY;
 const BALE_API = `https://tapi.bale.ai/bot${BALE_TOKEN}`;
 
-// حافظه مکالمات (هر کاربر جداگانه)
 const conversations = {};
 
 const SYSTEM_PROMPT = `تو دستیار فروش هوشمند فروشگاه «نوین پوشش» هستی — مرکز پخش آنلاین محصولات پلی‌کربنات ایران.
@@ -21,7 +20,6 @@ const SYSTEM_PROMPT = `تو دستیار فروش هوشمند فروشگاه «
 - مدل باران 100/200 → ۸٬۸۲۲٬۳۴۰ تومان
 - مدل باران 150/200 → ۱۰٬۵۶۵٬۰۵۰ تومان
 - مدل باران 80/700 → ۱۷٬۰۴۶٬۰۰۰ تومان
-- مدل بیتا 80 → تماس بگیرید
 - مدل بیتا 100/100 → ۵٬۴۹۹٬۳۰۰ تومان
 - مدل بیتا 100 → ۶٬۵۹۹٬۱۶۰ تومان
 - مدل بیتا 150 → ۹٬۳۶۱٬۹۲۰ تومان
@@ -34,43 +32,33 @@ const SYSTEM_PROMPT = `تو دستیار فروش هوشمند فروشگاه «
 - زهوار فیکسینگ 120 → ۸۹۶٬۹۹۹ تومان
 
 ورق پلی‌کربنات:
-- ورق دوجداره 6 میل (ابعاد مختلف) → از ۹۶۰٬۰۰۰ تومان
-- ورق دوجداره 100/120 6 میل → ۵٬۰۴۰٬۰۰۰ تومان (ناموجود)
-- ورق تخت (نشکن) 3 و 4 میل → تماس بگیرید
-
-🔧 اجزای بارانگیر:
-- براکت از جنس پلی‌آمید الیافدار (نشکن، مقاوم در هر آب‌وهوا)
-- ورق پلی‌کربنات 5 یا 6 میل دوجداره / یا 3 یا 4 میل تخت
-- زهوار فیکسینگ آلومینیوم (جلو و عقب)
-- انکر بولت سایز 10 و پیچ اتصال
-- پک کامل شامل همه اجزا می‌شود
+- ورق دوجداره 6 میل → از ۹۶۰٬۰۰۰ تومان
+- ورق دوجداره 100/120 6 میل → ۵٬۰۴۰٬۰۰۰ تومان
 
 🌐 سایت: novinpushesh.ir
 📞 تماس: 09128468737
 🚚 فروش کاملاً آنلاین — ارسال به سراسر ایران
 
-قوانین پاسخ‌دهی:
+قوانین:
 - همیشه فارسی پاسخ بده
-- پاسخ‌ها کوتاه، واضح و مفید باشند
-- اگر سوال درباره ابعاد خاصی بود که در لیست نیست، بگو با شماره 09128468737 تماس بگیرند
-- برای سفارش، مشتری رو به سایت novinpushesh.ir هدایت کن
-- اگر پیام غیرمرتبط بود، مودبانه به محصولات برگرد`;
+- پاسخ‌ها کوتاه و مفید باشند
+- برای سفارش به سایت novinpushesh.ir هدایت کن`;
 
-// ارسال پیام به بله
 async function sendMessage(chatId, text) {
-  await fetch(`${BALE_API}/sendMessage`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ chat_id: chatId, text }),
-  });
+  try {
+    await fetch(`${BALE_API}/sendMessage`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ chat_id: chatId, text }),
+    });
+  } catch (e) {
+    console.error("sendMessage error:", e.message);
+  }
 }
 
-// پردازش پیام با Claude
 async function getAIReply(userId, userMessage) {
   if (!conversations[userId]) conversations[userId] = [];
   conversations[userId].push({ role: "user", content: userMessage });
-
-  // نگه‌داری حداکثر ۱۰ پیام آخر
   if (conversations[userId].length > 20) {
     conversations[userId] = conversations[userId].slice(-20);
   }
@@ -83,24 +71,55 @@ async function getAIReply(userId, userMessage) {
       "anthropic-version": "2023-06-01",
     },
     body: JSON.stringify({
-      model: "claude-sonnet-4-20250514",
-      max_tokens: 1000,
+      model: "claude-haiku-4-5-20251001",
+      max_tokens: 500,
       system: SYSTEM_PROMPT,
       messages: conversations[userId],
     }),
   });
 
   const data = await response.json();
+  console.log("Anthropic response:", JSON.stringify(data));
+  
+  if (data.error) {
+    console.error("Anthropic error:", data.error);
+    return "متأسفم، مشکلی پیش آمد. لطفاً با 09128468737 تماس بگیرید.";
+  }
+  
   const reply = data.content?.[0]?.text || "متأسفم، مشکلی پیش آمد.";
   conversations[userId].push({ role: "assistant", content: reply });
   return reply;
 }
 
-// webhook اصلی
 app.post("/webhook", async (req, res) => {
   res.sendStatus(200);
   try {
     const update = req.body;
+    console.log("Received update:", JSON.stringify(update));
+    
+    const message = update.message;
+    if (!message || !message.text) return;
+
+    const chatId = message.chat.id;
+    const userId = message.from.id;
+    const text = message.text;
+
+    if (text === "/start") {
+      await sendMessage(chatId, `سلام! 👋 به فروشگاه نوین پوشش خوش آمدید.\n\nمن دستیار هوشمند این فروشگاه هستم:\n\n🔹 بارانگیر و سایبان پلی‌کربنات\n🔹 ورق پلی‌کربنات\n🔹 نورگیر حبابی\n\nسوال خود را بپرسید 👇`);
+      return;
+    }
+
+    const reply = await getAIReply(userId, text);
+    await sendMessage(chatId, reply);
+  } catch (err) {
+    console.error("Webhook error:", err.message);
+  }
+});
+
+app.get("/", (_, res) => res.send("Bot is running ✅"));
+
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
     const message = update.message;
     if (!message || !message.text) return;
 
