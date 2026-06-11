@@ -3,36 +3,15 @@ const app = express();
 app.use(express.json());
 
 const BALE_TOKEN = process.env.BALE_TOKEN;
-const ANTHROPIC_KEY = process.env.ANTHROPIC_KEY;
-const BALE_API = `https://tapi.bale.ai/bot${BALE_TOKEN}`;
+const GEMINI_KEY = process.env.GEMINI_KEY;
+const BALE_API = "https://tapi.bale.ai/bot" + BALE_TOKEN;
 
 const conversations = {};
 
-const SYSTEM_PROMPT = `تو دستیار فروش هوشمند فروشگاه «نوین پوشش» هستی — مرکز پخش آنلاین محصولات پلی‌کربنات ایران.
-
-محصولات و قیمت‌ها:
-- مدل باران 80/100: ۴٬۹۴۰٬۴۰۰ تومان
-- مدل باران 100/100: ۵٬۳۴۰٬۶۰۰ تومان
-- مدل باران 100/120: ۵٬۴۰۵٬۰۰۰ تومان
-- مدل باران 150/100: ۷٬۸۸۲٬۵۶۰ تومان
-- مدل باران 100/200: ۸٬۸۲۲٬۳۴۰ تومان
-- مدل باران 150/200: ۱۰٬۵۶۵٬۰۵۰ تومان
-- مدل بیتا 100: ۶٬۵۹۹٬۱۶۰ تومان
-- مدل بیتا 150: ۹٬۳۶۱٬۹۲۰ تومان
-- مدل بهار 80: ۴٬۴۷۱٬۲۰۰ تومان
-- مدل بهار 100: ۵٬۶۷۱٬۸۰۰ تومان
-- مدل بهار 150: ۷٬۲۰۳٬۶۰۰ تومان
-- براکت بارانگیر تک: ۲٬۲۸۰٬۰۰۰ تومان
-- ورق پلی‌کربنات دوجداره 6 میل: از ۹۶۰٬۰۰۰ تومان
-
-سایت: novinpushesh.ir
-تماس: 09128468737
-فروش آنلاین - ارسال به سراسر ایران
-
-قوانین: همیشه فارسی پاسخ بده. پاسخ کوتاه و مفید باشد.`;
+const SYSTEM_PROMPT = "تو دستیار فروش هوشمند فروشگاه نوین پوشش هستی — مرکز پخش آنلاین محصولات پلی‌کربنات ایران.\n\nمحصولات و قیمت‌ها:\n- مدل باران 80/100: 4940400 تومان\n- مدل باران 100/100: 5340600 تومان\n- مدل باران 100/120: 5405000 تومان\n- مدل باران 150/100: 7882560 تومان\n- مدل باران 100/200: 8822340 تومان\n- مدل باران 150/200: 10565050 تومان\n- مدل بیتا 100: 6599160 تومان\n- مدل بیتا 150: 9361920 تومان\n- مدل بهار 80: 4471200 تومان\n- مدل بهار 100: 5671800 تومان\n- مدل بهار 150: 7203600 تومان\n- براکت بارانگیر تک: 2280000 تومان\n- ورق پلی‌کربنات دوجداره 6 میل: از 960000 تومان\n\nسایت: novinpushesh.ir\nتماس: 09128468737\nفروش آنلاین - ارسال به سراسر ایران\n\nهمیشه فارسی پاسخ بده. پاسخ کوتاه و مفید باشد.";
 
 function sendMessage(chatId, text) {
-  return fetch(`${BALE_API}/sendMessage`, {
+  return fetch(BALE_API + "/sendMessage", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ chat_id: chatId, text: text }),
@@ -45,34 +24,30 @@ function getAIReply(userId, userMessage) {
   if (!conversations[userId]) {
     conversations[userId] = [];
   }
-  conversations[userId].push({ role: "user", content: userMessage });
+  conversations[userId].push({ role: "user", parts: [{ text: userMessage }] });
   if (conversations[userId].length > 20) {
     conversations[userId] = conversations[userId].slice(-20);
   }
 
-  return fetch("https://api.anthropic.com/v1/messages", {
+  var url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=" + GEMINI_KEY;
+
+  return fetch(url, {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "x-api-key": ANTHROPIC_KEY,
-      "anthropic-version": "2023-06-01",
-    },
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      model: "claude-haiku-4-5-20251001",
-      max_tokens: 500,
-      system: SYSTEM_PROMPT,
-      messages: conversations[userId],
+      system_instruction: { parts: [{ text: SYSTEM_PROMPT }] },
+      contents: conversations[userId],
     }),
   }).then(function(response) {
     return response.json();
   }).then(function(data) {
-    console.log("Anthropic response:", JSON.stringify(data));
-    if (data.error) {
-      console.error("Anthropic error:", JSON.stringify(data.error));
+    console.log("Gemini response:", JSON.stringify(data));
+    var reply = data.candidates && data.candidates[0] && data.candidates[0].content && data.candidates[0].content.parts && data.candidates[0].content.parts[0] && data.candidates[0].content.parts[0].text;
+    if (!reply) {
+      console.error("Gemini error:", JSON.stringify(data));
       return "متأسفم، مشکلی پیش آمد. با 09128468737 تماس بگیرید.";
     }
-    var reply = (data.content && data.content[0] && data.content[0].text) || "متأسفم، مشکلی پیش آمد.";
-    conversations[userId].push({ role: "assistant", content: reply });
+    conversations[userId].push({ role: "model", parts: [{ text: reply }] });
     return reply;
   });
 }
@@ -98,8 +73,17 @@ app.post("/webhook", function(req, res) {
     return sendMessage(chatId, reply);
   }).catch(function(err) {
     console.error("Error:", err.message);
-    sendMessage(chatId, "متأسفم، مشکلی پیش آمد. با 09128468727 تماس بگیرید.");
+    sendMessage(chatId, "متأسفم، مشکلی پیش آمد. با 09128468737 تماس بگیرید.");
   });
+});
+
+app.get("/", function(req, res) {
+  res.send("Bot is running");
+});
+
+var PORT = process.env.PORT || 3000;
+app.listen(PORT, function() {
+  console.log("Server running on port " + PORT);
 });
 
 app.get("/", function(req, res) {
